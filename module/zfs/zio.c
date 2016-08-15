@@ -234,7 +234,8 @@ zio_buf_alloc(size_t size)
 
 	VERIFY3U(c, <, SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT);
 
-	return (kmem_cache_alloc(zio_buf_cache[c], KM_PUSHPAGE));
+	return (vmem_alloc(size, KM_PUSHPAGE));
+//	return (kmem_cache_alloc(zio_buf_cache[c], KM_PUSHPAGE));
 }
 
 /*
@@ -250,7 +251,8 @@ zio_data_buf_alloc(size_t size)
 
 	VERIFY3U(c, <, SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT);
 
-	return (kmem_cache_alloc(zio_data_buf_cache[c], KM_PUSHPAGE));
+	return (vmem_alloc(size, KM_PUSHPAGE));
+//	return (kmem_cache_alloc(zio_data_buf_cache[c], KM_PUSHPAGE));
 }
 
 /*
@@ -264,7 +266,8 @@ zio_buf_alloc_flags(size_t size, int flags)
 
 	VERIFY3U(c, <, SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT);
 
-	return (kmem_cache_alloc(zio_buf_cache[c], flags));
+	return (vmem_alloc(size, flags));
+//	return (kmem_cache_alloc(zio_buf_cache[c], flags));
 }
 
 void
@@ -274,7 +277,8 @@ zio_buf_free(void *buf, size_t size)
 
 	VERIFY3U(c, <, SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT);
 
-	kmem_cache_free(zio_buf_cache[c], buf);
+	vmem_free(buf, size);
+//	kmem_cache_free(zio_buf_cache[c], buf);
 }
 
 void
@@ -284,7 +288,8 @@ zio_data_buf_free(void *buf, size_t size)
 
 	VERIFY3U(c, <, SPA_MAXBLOCKSIZE >> SPA_MINBLOCKSHIFT);
 
-	kmem_cache_free(zio_data_buf_cache[c], buf);
+	vmem_free(buf, size);
+//	kmem_cache_free(zio_data_buf_cache[c], buf);
 }
 
 /*
