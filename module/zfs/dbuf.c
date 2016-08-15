@@ -1120,13 +1120,12 @@ dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg)
 	 */
 	ASSERT(dr->dr_txg >= txg - 2);
 	if (db->db_blkid == DMU_BONUS_BLKID) {
-		spa_t *spa = db->db_objset->os_spa;
-		int maxdnodesize = spa_maxdnodesize(spa);
 		/* Note that the data bufs here are zio_bufs */
-
-		dr->dt.dl.dr_data = zio_buf_alloc(maxdnodesize);
-		arc_space_consume(maxdnodesize, ARC_SPACE_OTHER);
-		bcopy(db->db.db_data, dr->dt.dl.dr_data, maxdnodesize);
+		dnode_t *dn = DB_DNODE(db);
+		int bonuslen = DN_SLOTS_TO_BONUSLEN(dn->dn_num_slots);
+		dr->dt.dl.dr_data = zio_buf_alloc(bonuslen);
+		arc_space_consume(bonuslen, ARC_SPACE_OTHER);
+		bcopy(db->db.db_data, dr->dt.dl.dr_data, bonuslen);
 	} else if (refcount_count(&db->db_holds) > db->db_dirtycnt) {
 		int size = arc_buf_size(db->db_buf);
 		arc_buf_contents_t type = DBUF_GET_BUFC_TYPE(db);
