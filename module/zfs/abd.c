@@ -176,7 +176,7 @@ static kstat_t *abd_ksp;
 static struct page *
 abd_alloc_chunk(void)
 {
-	struct page *c = alloc_page(GFP_KERNEL);
+	struct page *c = alloc_page(kmem_flags_convert(KM_SLEEP));
 	ASSERT3P(c, !=, NULL);
 	return (c);
 }

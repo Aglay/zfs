@@ -2847,6 +2847,8 @@ receive_writer_thread(void *arg)
 {
 	struct receive_writer_arg *rwa = arg;
 	struct receive_record_arg *rrd;
+	fstrans_cookie_t cookie = spl_fstrans_mark();
+
 	for (rrd = bqueue_dequeue(&rwa->q); !rrd->eos_marker;
 	    rrd = bqueue_dequeue(&rwa->q)) {
 		/*
@@ -2871,6 +2873,7 @@ receive_writer_thread(void *arg)
 	rwa->done = B_TRUE;
 	cv_signal(&rwa->cv);
 	mutex_exit(&rwa->mutex);
+	spl_fstrans_unmark(cookie);
 }
 
 static int
