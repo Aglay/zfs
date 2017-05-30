@@ -1289,6 +1289,7 @@ umem_out_of_memory(void)
 }
 
 #define	HOSTID_MASK 0xffffffff
+
 static unsigned long
 get_spl_hostid(void)
 {
@@ -1301,7 +1302,7 @@ get_spl_hostid(void)
 	 */
 	env = getenv("ZFS_HOSTID");
 	if (env) {
-		hostid = strtoull(env, NULL, 10);
+		hostid = strtoull(env, NULL, 0);
 		return (hostid & HOSTID_MASK);
 	}
 
@@ -1311,6 +1312,7 @@ get_spl_hostid(void)
 	if (fscanf(f, "%lu", &hostid) != 1)
 		hostid = 0;
 	fclose(f);
+
 	return (hostid & HOSTID_MASK);
 }
 
