@@ -74,14 +74,16 @@ fi
 
 log_must sleep 5
 
+EXPECTED_MESSAGE="Export the pool on the other system"
+
 typeset cmd="zpool import -f -d $TEST_BASE_DIR/mmp_vdevs ztest 2>&1"
 for i in {1..10}; do
-	log_must eval "$cmd | grep 'Export the pool from the remote system'"
+	log_must eval "$cmd | grep \"$EXPECTED_MESSAGE\""
 done
 
 cmd="zpool import -d $TEST_BASE_DIR/mmp_vdevs ztest 2>&1"
 for i in {1..10}; do
-	log_must eval "$cmd | grep 'Export the pool on the other system'"
+	log_must eval "$cmd | grep \"$EXPECTED_MESSAGE\""
 done
 
 log_pass "zpool import fails on active pool (MMP) passed"
