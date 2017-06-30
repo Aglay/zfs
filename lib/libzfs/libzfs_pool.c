@@ -1779,6 +1779,7 @@ zpool_import_props(libzfs_handle_t *hdl, nvlist_t *config, const char *newname,
 
 	if (error) {
 		char desc[1024];
+		char aux_desc[256];
 
 		/*
 		 * Dry-run failed, but we print out what success
@@ -1840,12 +1841,13 @@ zpool_import_props(libzfs_handle_t *hdl, nvlist_t *config, const char *newname,
 					hostid = fnvlist_lookup_uint64(nvinfo,
 					    ZPOOL_CONFIG_IMPORT_HOSTID);
 
-				(void) snprintf(desc, sizeof (desc),
-				    dgettext(TEXT_DOMAIN, "The pool is "
+				(void) snprintf(aux_desc, sizeof (aux_desc),
+				    dgettext(TEXT_DOMAIN, "pool is "
 				    "imported on host '%s' (hostid=%lx).\n"
-				    "Export the pool from the remote "
-				    "system then it may be imported.\n"),
+				    "Export the pool on the other system, "
+				    "then run 'zpool import'."),
 				    hostname, (unsigned long) hostid);
+				(void) zfs_error_aux(hdl, aux_desc);
 			}
 			(void) zfs_error(hdl, EZFS_ACTIVE_POOL, desc);
 			break;

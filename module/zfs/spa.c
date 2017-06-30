@@ -2381,9 +2381,10 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 	    zfs_mmp_interval == 0)
 		return (B_FALSE);
 	/*
-	 * If the orig_* values are nonzero, they are the results of an earlier
-	 * tryimport.  If they match the uberblock we just found, then the pool
-	 * has not changed and we return false so we do not test a second time.
+	 * If the tryconfig_* values are nonzero, they are the results of an
+	 * earlier tryimport.  If they match the uberblock we just found, then
+	 * the pool has not changed and we return false so we do not test a
+	 * second time.
 	 */
 	if (tryconfig_txg && tryconfig_timestamp && tryconfig_txg ==
 	    ub->ub_txg && tryconfig_timestamp == ub->ub_timestamp)
@@ -2403,11 +2404,12 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *config)
  * detected activity then fail.
  */
 static int
-spa_activity_check(spa_t *spa, uberblock_t *ub)
+spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 {
 	uint64_t import_intervals = MAX(zfs_mmp_import_intervals, 1);
 	uint64_t txg = ub->ub_txg;
 	uint64_t timestamp = ub->ub_timestamp;
+	uint64_t tryconfig_txg = 0;
 	uint64_t import_delay = 0;
 	hrtime_t import_expire;
 	nvlist_t *mmp_label = NULL;
@@ -2419,6 +2421,21 @@ spa_activity_check(spa_t *spa, uberblock_t *ub)
 	cv_init(&cv, NULL, CV_DEFAULT, NULL);
 	mutex_init(&mtx, NULL, MUTEX_DEFAULT, NULL);
 	mutex_enter(&mtx);
+
+	/*
+	 * If ZPOOL_CONFIG_IMPORT_TXG is present, an activity check was
+	 * performed during the earlier tryimport.  If the txg recorded there
+	 * is 0, the pool is active on another host.
+	 *
+	 * Otherwise, the pool might be in use on another node.  Check for
+	 * changes in the uberblocks on disk if necessary.
+	 */
+	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_IMPORT_TXG,
+	    &tryconfig_txg) == 0 && tryconfig_txg == 0) {
+		vdev_uberblock_load(rvd, ub, &mmp_label);
+		error = SET_ERROR(EREMOTEIO);
+		goto out;
+	}
 
 	/*
 	 * Preferentially use the zfs_mmp_interval from the node which last
@@ -2459,7 +2476,9 @@ spa_activity_check(spa_t *spa, uberblock_t *ub)
 		error = 0;
 	}
 
+out:
 	mutex_exit(&mtx);
+	mutex_destroy(&mtx);
 	cv_destroy(&cv);
 
 	/*
@@ -2527,7 +2546,6 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	uint64_t obj;
 	boolean_t missing_feat_write = B_FALSE;
 	nvlist_t *mos_config;
-	uint64_t tryconfig_txg = 0;
 
 	/*
 	 * If this is an untrusted config, access the pool in read-only mode.
@@ -2616,21 +2634,8 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	 */
 	vdev_uberblock_load(rvd, ub, &label);
 
-	/*
-	 * If ZPOOL_CONFIG_IMPORT_TXG is present, an activity check was
-	 * performed during the earlier tryimport.  If the txg recorded there
-	 * is 0, the pool is active on another host.
-	 *
-	 * Otherwise, the pool might be in use on another node.  Check for
-	 * changes in the uberblocks on disk if necessary.
-	 */
-
-	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_IMPORT_TXG,
-	    &tryconfig_txg) == 0 && tryconfig_txg == 0)
-		return (SET_ERROR(EREMOTEIO));
-
 	if (spa_activity_check_required(spa, ub, config)) {
-		error = spa_activity_check(spa, ub);
+		error = spa_activity_check(spa, ub, config);
 		if (error) {
 			nvlist_free(label);
 			return (error);
