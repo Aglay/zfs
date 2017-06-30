@@ -4431,7 +4431,7 @@ spa_tryimport(nvlist_t *tryconfig)
 	 * If 'tryconfig' was at least parsable, return the current config.
 	 */
 	if (spa->spa_root_vdev != NULL) {
-		config = spa_config_generate(spa, NULL, -1ULL, B_FALSE);
+		config = spa_config_generate(spa, NULL, -1ULL, B_TRUE);
 		VERIFY(nvlist_add_string(config, ZPOOL_CONFIG_POOL_NAME,
 		    poolname) == 0);
 		VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_POOL_STATE,
