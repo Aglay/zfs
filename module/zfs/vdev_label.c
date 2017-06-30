@@ -214,28 +214,18 @@ vdev_label_write(zio_t *zio, vdev_t *vd, int l, abd_t *buf, uint64_t offset,
 void
 vdev_config_generate_stats(vdev_t *vd, nvlist_t *nv)
 {
+	nvlist_t *nvx;
 	vdev_stat_t *vs;
+	vdev_stat_ex_t *vsx;
 
 	vs = kmem_alloc(sizeof (*vs), KM_SLEEP);
+	vsx = kmem_alloc(sizeof (*vsx), KM_SLEEP);
 
-	vdev_get_stats_ex(vd, vs, NULL);
+	vdev_get_stats_ex(vd, vs, vsx);
 	fnvlist_add_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
 	    (uint64_t *)vs, sizeof (*vs) / sizeof (uint64_t));
 
 	kmem_free(vs, sizeof (*vs));
-}
-
-/*
- * Generate the nvlist representing this vdev's extended stats
- */
-void
-vdev_config_generate_stats_ex(vdev_t *vd, nvlist_t *nv)
-{
-	vdev_stat_ex_t *vsx;
-	nvlist_t *nvx;
-
-	vsx = kmem_alloc(sizeof (*vsx), KM_SLEEP);
-	vdev_get_stats_ex(vd, NULL, vsx);
 
 	/*
 	 * Add extended stats into a special extended stats nvlist.  This keeps
@@ -462,15 +452,10 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		}
 	}
 
-	/*
-	 * a few stats are necessary for basic status information.
-	 */
-	vdev_config_generate_stats(vd, nv);
-
 	if (getstats) {
 		pool_scan_stat_t ps;
 
-		vdev_config_generate_stats_ex(vd, nv);
+		vdev_config_generate_stats(vd, nv);
 
 		/* provide either current or previous scan information */
 		if (spa_scan_get_stats(spa, &ps) == 0) {
