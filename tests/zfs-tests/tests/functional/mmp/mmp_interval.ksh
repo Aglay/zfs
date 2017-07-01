@@ -19,10 +19,11 @@
 #
 
 # DESCRIPTION:
-#	zfs_mmp_interval should never be able to be negative
+#	zfs_mmp_interval should only accept valid values.
 #
 # STRATEGY:
-#	1. Set zfs_mmp_interval to negative value, should fail
+#	1. Set zfs_mmp_interval to invalid values (negative).
+#	2. Set zfs_mmp_interval to valid values.
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -32,14 +33,14 @@ verify_runnable "both"
 
 function cleanup
 {
-	set_tunable64 zfs_mmp_interval $MMP_INTERVAL_DEFAULT
+	log_must set_tunable64 zfs_mmp_interval $MMP_INTERVAL_DEFAULT
 }
 
-log_assert "zfs_mmp_interval cannot be set to a negative value"
+log_assert "zfs_mmp_interval cannot be set to an invalid value"
 log_onexit cleanup
 
-if set_tunable64 zfs_mmp_interval -1; then
-	log_fail "zfs_mmp_interval was set to a negative value"
-fi
+log_mustnot set_tunable64 zfs_mmp_interval -1
+log_must set_tunable64 zfs_mmp_interval $MMP_INTERVAL_MIN
+log_must set_tunable64 zfs_mmp_interval $MMP_INTERVAL_DEFAULT
 
-log_pass "zfs_mmp_interval cannot be set to a negative value passed"
+log_pass "zfs_mmp_interval cannot be set to an invalid value"

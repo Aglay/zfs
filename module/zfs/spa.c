@@ -153,6 +153,7 @@ static inline int spa_load_impl(spa_t *spa, uint64_t, nvlist_t *config,
     spa_load_state_t state, spa_import_type_t type, boolean_t mosconfig,
     char **ereport);
 static void spa_vdev_resilver_done(spa_t *spa);
+static unsigned long spa_get_hostid(void);
 
 uint_t		zio_taskq_batch_pct = 75;	/* 1 thread per cpu in pset */
 id_t		zio_taskq_psrset_bind = PS_NONE;
@@ -483,6 +484,16 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 			error = nvpair_value_uint64(elem, &intval);
 			if (!error && intval > 1)
 				error = SET_ERROR(EINVAL);
+			break;
+
+		case ZPOOL_PROP_SAFEIMPORT:
+			error = nvpair_value_uint64(elem, &intval);
+			if (!error && intval > 1)
+				error = SET_ERROR(EINVAL);
+
+			if (!error && !spa_get_hostid())
+				error = SET_ERROR(ENOTSUP);
+
 			break;
 
 		case ZPOOL_PROP_BOOTFS:
@@ -2390,9 +2401,16 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 	    ub->ub_txg && tryconfig_timestamp == ub->ub_timestamp)
 		return (B_FALSE);
 
+	/*
+	 * Allow the activity check to be skipped when importing the pool
+	 * on the same host which last imported it.
+	 */
 	if (hostid == myhostid)
 		return (B_FALSE);
 
+	/*
+	 * Skip the activity test when the pool was cleanly exported.
+	 */
 	if (config_pool_state != POOL_STATE_ACTIVE)
 		return (B_FALSE);
 
@@ -2449,7 +2467,7 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 
 	/* Apply a floor using the local default values. */
 	import_delay = MAX(import_delay, import_intervals *
-	    MSEC2NSEC(zfs_mmp_interval));
+	    MSEC2NSEC(MAX(zfs_mmp_interval, MMP_MIN_INTERVAL)));
 
 	/* Add a small random factor in case of simultaneous imports (0-25%) */
 	import_expire = gethrtime() + import_delay +
@@ -2482,40 +2500,37 @@ out:
 	cv_destroy(&cv);
 
 	/*
-	 * If the pool is active store the hostname and hostid found in the
-	 * active configuration in spa->spa_load_info.  This allows for
-	 * a descriptive error message to be generated for the adminstrator.
+	 * If the pool is determined to be active store the status in the
+	 * spa->spa_load_info nvlist.  If the remote hostname or hostid are
+	 * available from configuration read from disk store them as well.
+	 * This allows 'zpool import' to generate a more useful message.
 	 *
+	 * ZPOOL_CONFIG_IMPORT_STATUS   - observed pool status (mandatory)
 	 * ZPOOL_CONFIG_IMPORT_HOSTNAME - hostname from the active pool
-	 * ZPOOL_CONFIG_IMPORT_HOSTID - hostid from the active pool
+	 * ZPOOL_CONFIG_IMPORT_HOSTID   - hostid from the active pool
 	 */
 	if (error == EREMOTEIO) {
-		char *hostname = "unknown";
-		char *poolname;
+		char *hostname = "<unknown>";
 		uint64_t hostid = 0;
 
 		if (mmp_label) {
-			if (nvlist_exists(mmp_label, ZPOOL_CONFIG_HOSTNAME))
+			if (nvlist_exists(mmp_label, ZPOOL_CONFIG_HOSTNAME)) {
 				hostname = fnvlist_lookup_string(mmp_label,
 				    ZPOOL_CONFIG_HOSTNAME);
+				fnvlist_add_string(spa->spa_load_info,
+				    ZPOOL_CONFIG_IMPORT_HOSTNAME, hostname);
+			}
 
-			if (nvlist_exists(mmp_label, ZPOOL_CONFIG_HOSTID))
+			if (nvlist_exists(mmp_label, ZPOOL_CONFIG_HOSTID)) {
 				hostid = fnvlist_lookup_uint64(mmp_label,
 				    ZPOOL_CONFIG_HOSTID);
-
-			fnvlist_add_string(spa->spa_load_info,
-			    ZPOOL_CONFIG_IMPORT_HOSTNAME, hostname);
-			fnvlist_add_uint64(spa->spa_load_info,
-			    ZPOOL_CONFIG_IMPORT_HOSTID, hostid);
+				fnvlist_add_uint64(spa->spa_load_info,
+				    ZPOOL_CONFIG_IMPORT_HOSTID, hostid);
+			}
 		}
 
-		poolname = fnvlist_lookup_string(spa->spa_config,
-		    ZPOOL_CONFIG_POOL_NAME);
-
-		cmn_err(CE_WARN, "pool '%s' could not be loaded as it is being "
-		    "accessed by another system (host: %s hostid: 0x%lx)",
-		    poolname, hostname, (unsigned long)hostid);
-
+		fnvlist_add_uint64(spa->spa_load_info,
+		    ZPOOL_CONFIG_IMPORT_STATE, MMP_STATE_ACTIVE);
 		error = spa_vdev_err(rvd, VDEV_AUX_ACTIVE, EREMOTEIO);
 	}
 
@@ -2545,6 +2560,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	int parse, i;
 	uint64_t obj;
 	boolean_t missing_feat_write = B_FALSE;
+	boolean_t activity_check = B_FALSE;
 	nvlist_t *mos_config;
 
 	/*
@@ -2605,16 +2621,27 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		return (error);
 
 	/*
-	 * Find the best uberblock.
+	 * Find the best uberblock.  Using that uberblock determine not only
+	 * if the pool can be imported but if it's safe to do so.  Any pool
+	 * which has MMP enabled but no hostid set cannot be safely imported.
 	 */
 	vdev_uberblock_load(rvd, ub, &label);
 
-	if (spa_activity_check_required(spa, ub, config)) {
+	activity_check = spa_activity_check_required(spa, ub, config);
+	if (activity_check) {
 		error = spa_activity_check(spa, ub, config);
 		if (error) {
 			nvlist_free(label);
 			return (error);
 		}
+	}
+
+	if (ub->ub_mmp_magic == MMP_MAGIC && ub->ub_mmp_delay &&
+	    spa_get_hostid() == 0 && activity_check) {
+		nvlist_free(label);
+		fnvlist_add_uint64(spa->spa_load_info,
+		    ZPOOL_CONFIG_IMPORT_STATE, MMP_STATE_NO_HOSTID);
+		return (spa_vdev_err(rvd, VDEV_AUX_ACTIVE, EREMOTEIO));
 	}
 
 	/*
@@ -2635,11 +2662,15 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		error = vdev_validate(rvd, mosconfig);
 		spa_config_exit(spa, SCL_ALL, FTAG);
 
-		if (error != 0)
+		if (error != 0) {
+			nvlist_free(label);
 			return (error);
+		}
 
-		if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN)
+		if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN) {
+			nvlist_free(label);
 			return (SET_ERROR(ENXIO));
+		}
 	}
 
 	/*
@@ -2862,7 +2893,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	if (error != 0)
 		return (spa_vdev_err(rvd, VDEV_AUX_CORRUPT_DATA, EIO));
 
-	if (!mosconfig) {
+	if (!mosconfig || activity_check) {
 		uint64_t hostid;
 		nvlist_t *policy = NULL, *nvconfig;
 
@@ -2878,15 +2909,8 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 			    ZPOOL_CONFIG_HOSTNAME, &hostname) == 0);
 
 			myhostid = spa_get_hostid();
-			if (hostid != 0 && myhostid != 0 &&
-			    hostid != myhostid) {
+			if (hostid && myhostid && hostid != myhostid) {
 				nvlist_free(nvconfig);
-				cmn_err(CE_WARN, "pool '%s' could not be "
-				    "loaded as it was last accessed by "
-				    "another system (host: %s hostid: 0x%lx). "
-				    "http://zfsonlinux.org/msg/ZFS-8000-EY",
-				    spa_name(spa), hostname,
-				    (unsigned long)hostid);
 				return (SET_ERROR(EBADF));
 			}
 		}
@@ -3052,6 +3076,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		spa_prop_find(spa, ZPOOL_PROP_DELEGATION, &spa->spa_delegation);
 		spa_prop_find(spa, ZPOOL_PROP_FAILUREMODE, &spa->spa_failmode);
 		spa_prop_find(spa, ZPOOL_PROP_AUTOEXPAND, &spa->spa_autoexpand);
+		spa_prop_find(spa, ZPOOL_PROP_SAFEIMPORT, &spa->spa_safeimport);
 		spa_prop_find(spa, ZPOOL_PROP_DEDUPDITTO,
 		    &spa->spa_dedup_ditto);
 
@@ -4177,6 +4202,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	spa->spa_delegation = zpool_prop_default_numeric(ZPOOL_PROP_DELEGATION);
 	spa->spa_failmode = zpool_prop_default_numeric(ZPOOL_PROP_FAILUREMODE);
 	spa->spa_autoexpand = zpool_prop_default_numeric(ZPOOL_PROP_AUTOEXPAND);
+	spa->spa_safeimport = zpool_prop_default_numeric(ZPOOL_PROP_SAFEIMPORT);
 
 	if (props != NULL) {
 		spa_configfile_set(spa, props, B_FALSE);
@@ -6597,6 +6623,9 @@ spa_sync_props(void *arg, dmu_tx_t *tx)
 				if (tx->tx_txg != TXG_INITIAL)
 					spa_async_request(spa,
 					    SPA_ASYNC_AUTOEXPAND);
+				break;
+			case ZPOOL_PROP_SAFEIMPORT:
+				spa->spa_safeimport = intval;
 				break;
 			case ZPOOL_PROP_DEDUPDITTO:
 				spa->spa_dedup_ditto = intval;

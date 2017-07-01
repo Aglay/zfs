@@ -273,6 +273,7 @@ struct spa {
 	spa_stats_t	spa_stats;		/* assorted spa statistics */
 	hrtime_t	spa_ccw_fail_time;	/* Conf cache write fail time */
 	taskq_t		*spa_zvol_taskq;	/* Taskq for minor management */
+	uint64_t	spa_safeimport;		/* safe import active (mmp) */
 	mmp_thread_state_t spa_mmp;		/* Has own locking */
 
 	/*

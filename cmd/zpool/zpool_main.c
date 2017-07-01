@@ -2038,6 +2038,12 @@ show_import(nvlist_t *config)
 		    "imported by another system.\n"));
 		break;
 
+	case ZPOOL_STATUS_HOSTID_REQUIRED:
+		(void) printf(gettext(" status: The pool has the "
+		    "safeimport property on.  It cannot\n\tbe safely imported "
+		    "when the system hostid is not set.\n"));
+		break;
+
 	case ZPOOL_STATUS_HOSTID_MISMATCH:
 		(void) printf(gettext(" status: The pool was last accessed by "
 		    "another system.\n"));
@@ -2168,6 +2174,10 @@ show_import(nvlist_t *config)
 			    "can be safely imported.\n"), hostname,
 			    (unsigned long) hostid);
 			break;
+		case ZPOOL_STATUS_HOSTID_REQUIRED:
+			(void) printf(gettext(" action: Set the system hostid "
+			    "by creating an /etc/hostid file.\n"));
+			break;
 		default:
 			(void) printf(gettext(" action: The pool cannot be "
 			    "imported due to damaged devices or data.\n"));
@@ -2221,13 +2231,17 @@ zfs_force_import_required(nvlist_t *config)
 	uint64_t state;
 	uint64_t hostid = 0;
 	unsigned long system_hostid = get_system_hostid();
+	nvlist_t *nvinfo;
 
 	state = fnvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_STATE);
-	(void) nvlist_lookup_uint64(config, ZPOOL_CONFIG_HOSTID,
-	    &hostid);
+	(void) nvlist_lookup_uint64(config, ZPOOL_CONFIG_HOSTID, &hostid);
 
 	if (state == POOL_STATE_ACTIVE &&
 	    (unsigned long)hostid != system_hostid)
+		return (B_TRUE);
+
+	nvinfo = fnvlist_lookup_nvlist(config, ZPOOL_CONFIG_LOAD_INFO);
+	if (nvlist_exists(nvinfo, ZPOOL_CONFIG_IMPORT_STATE))
 		return (B_TRUE);
 
 	return (B_FALSE);
@@ -2258,15 +2272,22 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 	} else if (zfs_force_import_required(config) &&
 	    !(flags & ZFS_IMPORT_ANY_HOST)) {
 		nvlist_t *nvinfo;
+		boolean_t mmp;
+		uint64_t mmp_state;
 
 		nvinfo = fnvlist_lookup_nvlist(config, ZPOOL_CONFIG_LOAD_INFO);
+		mmp = nvlist_exists(nvinfo, ZPOOL_CONFIG_IMPORT_STATE);
+		if (mmp)
+			mmp_state = fnvlist_lookup_uint64(nvinfo,
+			    ZPOOL_CONFIG_IMPORT_STATE);
 
-		if (nvlist_exists(nvinfo, ZPOOL_CONFIG_IMPORT_HOSTNAME)) {
-			char *hostname;
+		if (mmp && mmp_state == MMP_STATE_ACTIVE) {
+			char *hostname = "<unknown>";
 			uint64_t hostid = 0;
 
-			hostname = fnvlist_lookup_string(nvinfo,
-			    ZPOOL_CONFIG_IMPORT_HOSTNAME);
+			if (nvlist_exists(nvinfo, ZPOOL_CONFIG_IMPORT_HOSTNAME))
+				hostname = fnvlist_lookup_string(nvinfo,
+				    ZPOOL_CONFIG_IMPORT_HOSTNAME);
 
 			if (nvlist_exists(nvinfo, ZPOOL_CONFIG_IMPORT_HOSTID))
 				hostid = fnvlist_lookup_uint64(nvinfo,
@@ -2277,13 +2298,19 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 			    "0x%lx)\nExport the pool on the other system, "
 			    "then run 'zpool import'.\n"),
 			    name, hostname, (unsigned long) hostid);
+		} else if (mmp && mmp_state == MMP_STATE_NO_HOSTID) {
+			(void) fprintf(stderr, gettext("Cannot import '%s': "
+			    "pool has the safeimport property on and the\n"
+			    "system's hostid is not set. Set a unique hostid "
+			    "by creating an /etc/hostid file.\n"), name);
 		} else {
-			char *hostname;
+			char *hostname = "<unknown>";
 			uint64_t timestamp = 0;
 			uint64_t hostid = 0;
 
-			hostname = fnvlist_lookup_string(config,
-			    ZPOOL_CONFIG_HOSTNAME);
+			if (nvlist_exists(config, ZPOOL_CONFIG_HOSTNAME))
+				hostname = fnvlist_lookup_string(config,
+				    ZPOOL_CONFIG_HOSTNAME);
 
 			if (nvlist_exists(config, ZPOOL_CONFIG_TIMESTAMP))
 				timestamp = fnvlist_lookup_uint64(config,

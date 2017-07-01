@@ -676,7 +676,14 @@ zpool_valid_proplist(libzfs_handle_t *hdl, const char *poolname,
 				goto error;
 			}
 			break;
-
+		case ZPOOL_PROP_SAFEIMPORT:
+			if (get_system_hostid() == 0) {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "requires a non-zero system hostid"));
+				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto error;
+			}
+			break;
 		default:
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "property '%s'(%d) not defined"), propname, prop);
@@ -1779,7 +1786,7 @@ zpool_import_props(libzfs_handle_t *hdl, nvlist_t *config, const char *newname,
 
 	if (error) {
 		char desc[1024];
-		char aux_desc[256];
+		char aux[256];
 
 		/*
 		 * Dry-run failed, but we print out what success
@@ -1828,8 +1835,12 @@ zpool_import_props(libzfs_handle_t *hdl, nvlist_t *config, const char *newname,
 		case EREMOTEIO:
 			if (nv != NULL && nvlist_lookup_nvlist(nv,
 			    ZPOOL_CONFIG_LOAD_INFO, &nvinfo) == 0) {
-				char *hostname = "unknown";
+				char *hostname = "<unknown>";
 				uint64_t hostid = 0;
+				uint64_t mmp_state;
+
+				mmp_state = fnvlist_lookup_uint64(nvinfo,
+				    ZPOOL_CONFIG_IMPORT_STATE);
 
 				if (nvlist_exists(nvinfo,
 				    ZPOOL_CONFIG_IMPORT_HOSTNAME))
@@ -1841,13 +1852,23 @@ zpool_import_props(libzfs_handle_t *hdl, nvlist_t *config, const char *newname,
 					hostid = fnvlist_lookup_uint64(nvinfo,
 					    ZPOOL_CONFIG_IMPORT_HOSTID);
 
-				(void) snprintf(aux_desc, sizeof (aux_desc),
-				    dgettext(TEXT_DOMAIN, "pool is "
-				    "imported on host '%s' (hostid=%lx).\n"
-				    "Export the pool on the other system, "
-				    "then run 'zpool import'."),
-				    hostname, (unsigned long) hostid);
-				(void) zfs_error_aux(hdl, aux_desc);
+				if (mmp_state == MMP_STATE_ACTIVE) {
+					(void) snprintf(aux, sizeof (aux),
+					    dgettext(TEXT_DOMAIN, "pool is imp"
+					    "orted on host '%s' (hostid=%lx).\n"
+					    "Export the pool on the other "
+					    "system, then run 'zpool import'."),
+					    hostname, (unsigned long) hostid);
+				} else if (mmp_state == MMP_STATE_NO_HOSTID) {
+					(void) snprintf(aux, sizeof (aux),
+					    dgettext(TEXT_DOMAIN, "pool has "
+					    "the safeimport property on and "
+					    "the\nsystem's hostid is not set. "
+					    "Set a unique hostid by creating "
+					    "an /etc/hostid file.\n"));
+				}
+
+				(void) zfs_error_aux(hdl, aux);
 			}
 			(void) zfs_error(hdl, EZFS_ACTIVE_POOL, desc);
 			break;

@@ -217,11 +217,24 @@ check_status(nvlist_t *config, boolean_t isimport, zpool_errata_t *erratap)
 		return (ZPOOL_STATUS_RESILVERING);
 
 	/*
-	 * Pool is actively imported on another system.
+	 * The safeimport property is set and the pool may be active.
 	 */
 	if (vs->vs_state == VDEV_STATE_CANT_OPEN &&
-	    vs->vs_aux == VDEV_AUX_ACTIVE)
-		return (ZPOOL_STATUS_HOSTID_ACTIVE);
+	    vs->vs_aux == VDEV_AUX_ACTIVE) {
+		nvlist_t *nvinfo;
+		uint64_t state;
+
+		nvinfo = fnvlist_lookup_nvlist(config, ZPOOL_CONFIG_LOAD_INFO);
+		state = fnvlist_lookup_uint64(nvinfo,
+		    ZPOOL_CONFIG_IMPORT_STATE);
+
+		if (state == MMP_STATE_ACTIVE)
+			return (ZPOOL_STATUS_HOSTID_ACTIVE);
+		else if (state == MMP_STATE_NO_HOSTID)
+			return (ZPOOL_STATUS_HOSTID_REQUIRED);
+		else
+			return (ZPOOL_STATUS_HOSTID_MISMATCH);
+	}
 
 	/*
 	 * Pool last accessed by another system.

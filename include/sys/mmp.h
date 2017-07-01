@@ -27,7 +27,8 @@
 extern "C" {
 #endif
 
-#define	MMP_DEFAULT_INTERVAL		1000
+#define	MMP_MIN_INTERVAL		10	/* ms */
+#define	MMP_DEFAULT_INTERVAL		1000	/* ms */
 #define	MMP_DEFAULT_IMPORT_INTERVALS	10
 #define	MMP_DEFAULT_FAIL_INTERVALS	5
 

@@ -221,6 +221,7 @@ typedef enum {
 	ZPOOL_PROP_MAXBLOCKSIZE,
 	ZPOOL_PROP_TNAME,
 	ZPOOL_PROP_MAXDNODESIZE,
+	ZPOOL_PROP_SAFEIMPORT,
 	ZPOOL_NUM_PROPS
 } zpool_prop_t;
 
@@ -629,6 +630,7 @@ typedef struct zpool_rewind_policy {
 #define	ZPOOL_CONFIG_COMMENT		"comment"
 #define	ZPOOL_CONFIG_SUSPENDED		"suspended"	/* not stored on disk */
 #define	ZPOOL_CONFIG_TIMESTAMP		"timestamp"	/* not stored on disk */
+#define	ZPOOL_CONFIG_IMPORT_STATE	"import_state"	/* not stored on disk */
 #define	ZPOOL_CONFIG_IMPORT_TXG		"import_txg"	/* not stored on disk */
 #define	ZPOOL_CONFIG_IMPORT_HOSTNAME	"import_hostname"
 #define	ZPOOL_CONFIG_IMPORT_HOSTID	"import_hostid" /* not stored on disk */
@@ -739,7 +741,7 @@ typedef enum vdev_aux {
 	VDEV_AUX_SPLIT_POOL,	/* vdev was split off into another pool	*/
 	VDEV_AUX_BAD_ASHIFT,	/* vdev ashift is invalid		*/
 	VDEV_AUX_EXTERNAL_PERSIST,	/* persistent forced fault	*/
-	VDEV_AUX_ACTIVE,	/* vdev is active on a different host	*/
+	VDEV_AUX_ACTIVE,	/* vdev active on a different host	*/
 } vdev_aux_t;
 
 /*
@@ -758,6 +760,11 @@ typedef enum pool_state {
 	POOL_STATE_UNAVAIL,		/* Internal libzfs state	*/
 	POOL_STATE_POTENTIALLY_ACTIVE	/* Internal libzfs state	*/
 } pool_state_t;
+
+typedef enum mmp_state {
+	MMP_STATE_ACTIVE = 0,		/* In active use		*/
+	MMP_STATE_NO_HOSTID = 1,	/* System hostid is not set	*/
+} mmp_state_t;
 
 /*
  * Scan Functions.

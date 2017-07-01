@@ -53,6 +53,7 @@ if ! set_tunable64 zfs_txg_timeout $TXG_TIMEOUT_LONG ; then
 fi
 
 default_setup_noexit $DISK
+log_must zpool set safeimport=on $TESTPOOL
 sync_pool $TESTPOOL
 
 log_must zdb -u $TESTPOOL > $PREV_UBER

@@ -338,6 +338,7 @@ vdev_random_leaf(spa_t *spa)
 static void
 mmp_write_done(zio_t *zio)
 {
+	spa_t *spa = zio->io_spa;
 	vdev_t *vd = zio->io_vd;
 	mmp_thread_state_t *mts = zio->io_private;
 
@@ -359,10 +360,10 @@ mmp_write_done(zio_t *zio)
 	 * tells the importer how soon it can expect to see activity
 	 * if the pool is still imported.
 	 *
-	 * Do not set mmp_delay if zfs_mmp_interval == 0, so we do
-	 * not trigger an activity check on import.
+	 * Do not set mmp_delay if the safe import property is not on,
+	 * so as not to trigger an activity check on import.
 	 */
-	if (zfs_mmp_interval) {
+	if (spa->spa_safeimport) {
 		hrtime_t delay = gethrtime() - mts->mmp_last_write;
 
 		if (delay > mts->mmp_delay)
@@ -453,8 +454,8 @@ static void
 mmp_thread(spa_t *spa)
 {
 	mmp_thread_state_t *mmp = &spa->spa_mmp;
-	uint64_t last_zfs_mmp_interval = zfs_mmp_interval;
 	boolean_t last_spa_suspended = spa_suspended(spa);
+	uint64_t last_spa_safeimport = spa->spa_safeimport;
 	callb_cpr_t cpr;
 
 	mmp_thread_enter(mmp, &cpr);
@@ -463,26 +464,27 @@ mmp_thread(spa_t *spa)
 	 * The done function calculates mmp_delay based on the prior
 	 * value of mmp_delay and the elapsed time since the last write.
 	 * For the first mmp write, there is no "last write", so we
-	 * start with fake, but reasonable, nonzero values.
+	 * start with fake, but reasonable, default non-zero values.
 	 */
-	mmp->mmp_last_write = gethrtime() - MSEC2NSEC(zfs_mmp_interval);
-	mmp->mmp_delay = MSEC2NSEC(zfs_mmp_interval);
+	mmp->mmp_delay = MSEC2NSEC(MAX(zfs_mmp_interval, MMP_MIN_INTERVAL)) /
+	    vdev_count_leaves(spa);
+	mmp->mmp_last_write = gethrtime() - mmp->mmp_delay;
 
 	for (;;) {
-		/* for stable values within an iteration */
 		uint64_t mmp_fail_intervals = zfs_mmp_fail_intervals;
-		uint64_t mmp_interval = MSEC2NSEC(zfs_mmp_interval);
+		uint64_t mmp_interval = MSEC2NSEC(
+		    MAX(zfs_mmp_interval, MMP_MIN_INTERVAL));
+		uint64_t safeimport = spa->spa_safeimport;
 		boolean_t suspended = spa_suspended(spa);
 		hrtime_t start, next_time;
 		clock_t ticks_to_wait;
-		hrtime_t max_fail_ns = (mmp_interval *
-		    mmp_fail_intervals);
+		hrtime_t max_fail_ns = (mmp_interval * mmp_fail_intervals);
 
 		if (mmp->mmp_thread_exiting)
 			goto cleanup_and_exit;
 
 		start = gethrtime();
-		if (mmp_interval) {
+		if (safeimport) {
 			next_time = start + mmp_interval /
 			    vdev_count_leaves(spa);
 		} else {
@@ -494,49 +496,38 @@ mmp_thread(spa_t *spa)
 		 * !suspended, we know no writes occurred recently.  We
 		 * update mmp_last_write to give us some time to try.
 		 */
-		if ((!last_zfs_mmp_interval && mmp_interval) ||
+		if ((!last_spa_safeimport && safeimport) ||
 		    (last_spa_suspended && !suspended)) {
-			dprintf("mmp_thread transtion: pool %s last interval "
-			    "%lu interval %lu last suspended %d suspended %d\n",
-			    spa->spa_name, last_zfs_mmp_interval, mmp_interval,
-			    last_spa_suspended, suspended);
 			mutex_enter(&mmp->mmp_io_lock);
 			mmp->mmp_last_write = gethrtime();
 			mutex_exit(&mmp->mmp_io_lock);
-		} else if (last_zfs_mmp_interval && !mmp_interval) {
+		} else if (last_spa_safeimport && !safeimport) {
 			mutex_enter(&mmp->mmp_io_lock);
 			mmp->mmp_delay = 0;
 			mutex_exit(&mmp->mmp_io_lock);
 		}
-		last_zfs_mmp_interval = mmp_interval;
+		last_spa_safeimport = safeimport;
 		last_spa_suspended = suspended;
 
 		/*
-		 * Check after the transition check above.
+		 * Suspend the pool if no MMP write has succeeded in over
+		 * mmp_interval * mmp_fail_intervals nanoseconds.
 		 */
-		if (!suspended && mmp_fail_intervals && mmp_interval &&
+		if (!suspended && mmp_fail_intervals && safeimport &&
 		    (start - mmp->mmp_last_write) > max_fail_ns) {
-			dprintf("mmp suspending pool: pool %s "
-			    "zfs_mmp_interval %lu zfs_mmp_fail_intervals %lu "
-			    "mmp_last_write %llu now %llu\n", spa->spa_name,
-			    mmp_interval, mmp_fail_intervals,
-			    mmp->mmp_last_write, start);
 			zio_suspend(spa, NULL);
 		}
 
-		if (zfs_mmp_interval) {
+		if (safeimport) {
 			spa_config_enter(spa, SCL_STATE, FTAG, RW_READER);
 			mmp_write_uberblock(spa);
 			spa_config_exit(spa, SCL_STATE, FTAG);
 		}
 
-		if (gethrtime() > next_time)
-			continue;
-
 		ticks_to_wait = (next_time-gethrtime())/(NANOSEC/HZ);
 
 		CALLB_CPR_SAFE_BEGIN(&cpr);
-		(void) cv_timedwait(&mmp->mmp_thread_cv,
+		(void) cv_timedwait_sig(&mmp->mmp_thread_cv,
 		    &mmp->mmp_thread_lock, ddi_get_lbolt() + ticks_to_wait);
 		CALLB_CPR_SAFE_END(&cpr, &mmp->mmp_thread_lock);
 	}
