@@ -39,6 +39,14 @@ ZTESTPID=
 
 function cleanup
 {
+	if [ -f $TEST_BASE_DIR/import.out ]; then
+		log_note "======= Contents of import.out: ======="
+		cat $TEST_BASE_DIR/import.out | while read aline; do
+			log_note $aline
+		done
+		log_note "======= End of import.out: ======="
+	fi
+
 	if [ -n "$ZTESTPID" ]; then
 		if ps -p $ZTESTPID > /dev/null; then
 			log_must kill -s 9 $ZTESTPID
@@ -78,12 +86,12 @@ EXPECTED_MESSAGE="Export the pool on the other system"
 
 typeset cmd="zpool import -f -d $TEST_BASE_DIR/mmp_vdevs ztest 2>&1"
 for i in {1..10}; do
-	log_must eval "$cmd | grep \"$EXPECTED_MESSAGE\""
+	log_must eval "$cmd | tee $TEST_BASE_DIR/import.out | grep \"$EXPECTED_MESSAGE\""
 done
 
 cmd="zpool import -d $TEST_BASE_DIR/mmp_vdevs ztest 2>&1"
 for i in {1..10}; do
-	log_must eval "$cmd | grep \"$EXPECTED_MESSAGE\""
+	log_must eval "$cmd | tee $TEST_BASE_DIR/import.out | grep \"$EXPECTED_MESSAGE\""
 done
 
 log_pass "zpool import fails on active pool (MMP) passed"
