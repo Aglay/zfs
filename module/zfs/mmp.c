@@ -474,6 +474,7 @@ mmp_thread(spa_t *spa)
 		uint64_t mmp_interval = MSEC2NSEC(zfs_mmp_interval);
 		boolean_t suspended = spa_suspended(spa);
 		hrtime_t start, next_time;
+		clock_t ticks_to_wait;
 		hrtime_t max_fail_ns = (mmp_interval *
 		    mmp_fail_intervals);
 
@@ -529,13 +530,14 @@ mmp_thread(spa_t *spa)
 			spa_config_exit(spa, SCL_STATE, FTAG);
 		}
 
-		if (gethrtime() >= next_time)
+		if (gethrtime() > next_time)
 			continue;
 
+		ticks_to_wait = (next_time-gethrtime())/(NANOSEC/HZ);
+
 		CALLB_CPR_SAFE_BEGIN(&cpr);
-		(void) cv_timedwait_hires(&mmp->mmp_thread_cv,
-		    &mmp->mmp_thread_lock, next_time, 1,
-		    CALLOUT_FLAG_ABSOLUTE);
+		(void) cv_timedwait(&mmp->mmp_thread_cv,
+		    &mmp->mmp_thread_lock, ddi_get_lbolt() + ticks_to_wait);
 		CALLB_CPR_SAFE_END(&cpr, &mmp->mmp_thread_lock);
 	}
 

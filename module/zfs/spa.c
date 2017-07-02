@@ -2468,7 +2468,7 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 			mmp_label = NULL;
 		}
 
-		error = cv_timedwait_sig_hires(&cv, &mtx, NANOSEC, 1, 0);
+		error = cv_timedwait_sig(&cv, &mtx, ddi_get_lbolt() + hz);
 		if (error != -1) {
 			error = SET_ERROR(EINTR);
 			break;
