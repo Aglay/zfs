@@ -166,6 +166,7 @@ typedef struct ztest_shared_opts {
 	uint64_t zo_time;
 	uint64_t zo_maxloops;
 	uint64_t zo_metaslab_gang_bang;
+	int zo_mmp_test;
 } ztest_shared_opts_t;
 
 static const ztest_shared_opts_t ztest_opts_defaults = {
@@ -184,6 +185,7 @@ static const ztest_shared_opts_t ztest_opts_defaults = {
 	.zo_passtime = 60,		/* 60 seconds */
 	.zo_killrate = 70,		/* 70% kill rate */
 	.zo_verbose = 0,
+	.zo_mmp_test = 0,
 	.zo_init = 1,
 	.zo_time = 300,			/* 5 minutes */
 	.zo_maxloops = 50,		/* max loops during spa_freeze() */
@@ -623,6 +625,7 @@ usage(boolean_t requested)
 	    "\t[-k kill_percentage (default: %llu%%)]\n"
 	    "\t[-p pool_name (default: %s)]\n"
 	    "\t[-f dir (default: %s)] file directory for vdev files\n"
+	    "\t[-M] MMP Test (skip some tests for use with MMP auto testing)\n"
 	    "\t[-V] verbose (use multiple times for ever more blather)\n"
 	    "\t[-E] use existing pool instead of creating new one\n"
 	    "\t[-T time (default: %llu sec)] total run time\n"
@@ -666,7 +669,7 @@ process_options(int argc, char **argv)
 	bcopy(&ztest_opts_defaults, zo, sizeof (*zo));
 
 	while ((opt = getopt(argc, argv,
-	    "v:s:a:m:r:R:d:t:g:i:k:p:f:VET:P:hF:B:o:")) != EOF) {
+	    "v:s:a:m:r:R:d:t:g:i:k:p:f:MVET:P:hF:B:o:")) != EOF) {
 		value = 0;
 		switch (opt) {
 		case 'v':
@@ -735,6 +738,9 @@ process_options(int argc, char **argv)
 				    sizeof (zo->zo_dir));
 				free(path);
 			}
+			break;
+		case 'M':
+			zo->zo_mmp_test = 1;
 			break;
 		case 'V':
 			zo->zo_verbose++;
@@ -5628,6 +5634,9 @@ ztest_spa_rename(ztest_ds_t *zd, uint64_t id)
 	char *oldname, *newname;
 	spa_t *spa;
 
+	if (ztest_opts.zo_mmp_test)
+		return;
+
 	(void) rw_wrlock(&ztest_name_lock);
 
 	oldname = ztest_opts.zo_pool;
@@ -6601,6 +6610,9 @@ ztest_init(ztest_shared_t *zs)
 	VERIFY3U(0, ==, spa_create(ztest_opts.zo_pool, nvroot, props, NULL));
 	nvlist_free(nvroot);
 	nvlist_free(props);
+
+	if (ztest_opts.zo_verbose >= 2)
+		(void) printf("creating pool %s...\n", ztest_opts.zo_pool);
 
 	VERIFY3U(0, ==, spa_open(ztest_opts.zo_pool, &spa, FTAG));
 	zs->zs_metaslab_sz =
