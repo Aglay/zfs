@@ -409,6 +409,8 @@ typedef struct importargs {
 } importargs_t;
 
 extern nvlist_t *zpool_search_import(libzfs_handle_t *, importargs_t *);
+extern int zpool_tryimport(libzfs_handle_t *hdl, char *target,
+    nvlist_t **configp, importargs_t *args);
 
 /* legacy pool search routines */
 extern nvlist_t *zpool_find_import(libzfs_handle_t *, int, char **);
