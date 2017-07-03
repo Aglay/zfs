@@ -2605,6 +2605,19 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		return (error);
 
 	/*
+	 * Find the best uberblock.
+	 */
+	vdev_uberblock_load(rvd, ub, &label);
+
+	if (spa_activity_check_required(spa, ub, config)) {
+		error = spa_activity_check(spa, ub, config);
+		if (error) {
+			nvlist_free(label);
+			return (error);
+		}
+	}
+
+	/*
 	 * We need to validate the vdev labels against the configuration that
 	 * we have in hand, which is dependent on the setting of mosconfig. If
 	 * mosconfig is true then we're validating the vdev labels based on
@@ -2627,19 +2640,6 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 
 		if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN)
 			return (SET_ERROR(ENXIO));
-	}
-
-	/*
-	 * Find the best uberblock.
-	 */
-	vdev_uberblock_load(rvd, ub, &label);
-
-	if (spa_activity_check_required(spa, ub, config)) {
-		error = spa_activity_check(spa, ub, config);
-		if (error) {
-			nvlist_free(label);
-			return (error);
-		}
 	}
 
 	/*
