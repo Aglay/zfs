@@ -2272,7 +2272,7 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 				hostid = fnvlist_lookup_uint64(nvinfo,
 				    ZPOOL_CONFIG_IMPORT_HOSTID);
 
-			(void) fprintf(stderr, gettext("Cannot import '%s': "
+			(void) fprintf(stderr, gettext("cannot import '%s': "
 			    "pool is imported on %s (hostid: "
 			    "0x%lx)\nExport the pool on the other system, "
 			    "then run 'zpool import'.\n"),
@@ -2293,7 +2293,7 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 				hostid = fnvlist_lookup_uint64(config,
 				    ZPOOL_CONFIG_HOSTID);
 
-			(void) fprintf(stderr, gettext("Cannot import '%s': "
+			(void) fprintf(stderr, gettext("cannot import '%s': "
 			    "pool was previously in use from another system.\n"
 			    "Last accessed by %s (hostid: 0x%lx) at %s"
 			    "The pool can be imported, use 'zpool import -f' "
